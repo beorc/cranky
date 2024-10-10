@@ -10,6 +10,8 @@ module Cranky
       @pipeline = []
       @n = 0
       @errors = []
+      @fixtures = {}
+      @stats = {}
     end
 
     def build(what, overrides={})
@@ -23,7 +25,7 @@ module Cranky
       item = build(what, overrides)
       Array(item).each do |i|
         call_before_create(what, i)
-        i.save && call_after_create(what, i)
+        (i.persisted? || i.save) && call_after_create(what, i)
       end
       item
     end
@@ -32,7 +34,7 @@ module Cranky
       item = build(what, overrides)
       Array(item).each do |i|
         call_before_create(what, i)
-        i.save!
+        i.save! unless i.persisted?
         call_after_create(what, i)
       end
       item
@@ -102,6 +104,37 @@ module Cranky
         options.fetch(*args)
       end
     end
+    
+    def reload_fixture
+      @fixtures.values.each(&:reload)
+    end
+
+    def load_fixture(filename)
+      return unless File.exist?(filename)
+
+      puts '================= load fixture =================='
+      data = YAML.load(File.read(filename))
+      data.each do |f|
+        p f
+        overrides = JSON.parse(f[:overrides])
+        # overrides[:_skip_fixture] = true
+        @fixtures[f[:digest]] ||= crank!(f[:what], overrides)
+        if f[:what] == :organization
+          p f[:digest]
+          p f[:overrides]
+          p @fixtures[f[:digest]]
+        end
+      end
+      puts '================= fixture loaded =================='
+    end
+
+    def dump_stats(filename)
+      return if @stats.blank?
+
+      File.open(filename, 'w') do |f|
+        f.write(@stats.values.sort_by { |v| -v[:count] }.to_yaml)
+      end
+    end
 
     private
 
@@ -136,15 +169,37 @@ module Cranky
 
       # Execute the requested factory method, crank out the target object!
       def crank_it(what, overrides)
+        digest = Digest::SHA256.hexdigest({ what:, overrides: }.to_json)
+
         if what.to_s =~ /(.*)_attrs$/
           what = $1
           overrides = overrides.merge(:_return_attributes => true)
+        end
+        if overrides[:_return_attributes].nil?
+          # p what
+          # p overrides
+          # puts '---'
+
+          if @fixtures[digest].present?
+            # if what == :organization
+            #   p digest
+            #   p @fixtures[digest]
+            # end
+
+            return @fixtures[digest]
+          end
         end
         item = "TBD"
         new_job(what, overrides) do
           item = self.send(what)        # Invoke the factory method
           item = apply_traits(what, item)
         end
+        count = 1
+        current = @stats[digest]
+        if current.present?
+          count = current[:count] + 1
+        end
+        @stats[digest] = { what:, overrides: overrides.to_json, digest:, count: }
         item
       end
 

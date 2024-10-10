@@ -1,3 +1,4 @@
+require 'yaml'
 require 'cranky/version'
 require 'cranky/job'
 require 'cranky/linter'
