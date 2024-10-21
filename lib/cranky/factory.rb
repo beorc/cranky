@@ -24,7 +24,7 @@ module Cranky
 
     def create!(what, overrides={})
       item = build(what, overrides)
-      Array(item).each(&:save!)
+      Array(item).each { |i| i.save!(validate: false) }
       item
     end
 
